@@ -221,15 +221,17 @@ router.get('/:ticketId', (req, res) => {
     }
 });
 
+
+
 // Update complaint status
 router.patch('/:ticketId/status', (req, res) => {
-
     try {
         const { status } = req.body;
         const ticketId = req.params.ticketId;
 
         const allowedStatuses = [
-            'Pending',
+            'Submitted',
+            'Assigned',
             'In Progress',
             'Resolved'
         ];
@@ -263,7 +265,6 @@ router.patch('/:ticketId/status', (req, res) => {
 
     } catch (error) {
         console.error(error);
-
         res.status(500).json({
             success: false,
             message: 'Unable to update status.'
