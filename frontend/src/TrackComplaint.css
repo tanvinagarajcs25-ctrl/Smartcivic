@@ -1,0 +1,76 @@
+/* Styles used only by TrackComplaint.jsx.
+   Colours match the existing App.css (blue #2563eb / #1e3a8a). */
+
+.tc-progress {
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+}
+
+.tc-step {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+/* line connecting one dot to the next */
+.tc-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  left: calc(50% + 16px);
+  right: calc(-50% + 16px);
+  height: 3px;
+  background: #cbd5e1;
+}
+
+.tc-step-done:not(:last-child)::after {
+  background: #2563eb;
+}
+
+.tc-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid #cbd5e1;
+  background: white;
+  color: white;
+  font-size: 14px;
+  line-height: 22px;
+  box-sizing: border-box;
+}
+
+.tc-step-done .tc-dot {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.tc-step-current .tc-dot {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
+.tc-step-label {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.tc-step-current .tc-step-label {
+  color: #1e3a8a;
+  font-weight: 700;
+}
+
+.tc-image {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin-top: 16px;
+  border-radius: 10px;
+  object-fit: contain;
+}
