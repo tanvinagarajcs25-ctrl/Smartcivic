@@ -1,40 +1,32 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../database');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const { classifyImage } = require('../aiClassifier');
 
-const db = require('../database');
-const generateTicketId = require('../ticketGenerator');
-
-// Create uploads folder if it does not exist
-const uploadFolder = path.join(__dirname, '../uploads');
-
-if (!fs.existsSync(uploadFolder)) {
-    fs.mkdirSync(uploadFolder);
-}
-
-// Configure image storage
+// Image upload configuration
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, uploadFolder);
+        cb(null, 'uploads/');
     },
 
     filename: (req, file, cb) => {
-        const extension = path.extname(file.originalname).toLowerCase();
-        const filename = Date.now() + '-' + Math.round(Math.random() * 1000000) + extension;
-        cb(null, filename);
+        cb(null, Date.now() + path.extname(file.originalname));
     }
 });
 
-// Allow image files only
 const upload = multer({
     storage: storage,
     limits: {
         fileSize: 5 * 1024 * 1024
     },
     fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        const allowedTypes = [
+            'image/jpeg',
+            'image/png',
+            'image/webp'
+        ];
 
         if (allowedTypes.includes(file.mimetype)) {
             cb(null, true);
@@ -44,10 +36,15 @@ const upload = multer({
     }
 });
 
-// Submit a new complaint with optional image
-router.post('/', (req, res) => {
+// Generate ticket ID
+function generateTicketId() {
+    return 'SC-' + Date.now();
+}
 
-    upload.single('image')(req, res, (uploadError) => {
+// AI image classification endpoint
+router.post('/classify', (req, res) => {
+
+    upload.single('image')(req, res, async (uploadError) => {
 
         if (uploadError) {
             return res.status(400).json({
@@ -57,9 +54,54 @@ router.post('/', (req, res) => {
         }
 
         try {
-            const { category, description, location, latitude, longitude } = req.body;
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Please upload an image.'
+                });
+            }
 
-            // Validate required fields
+            const aiResult = await classifyImage(req.file.path);
+            console.log('AI result received:', aiResult);
+
+            res.json({
+                success: true,
+                suggestedCategory: aiResult.suggestedCategory,
+                predictions: aiResult.predictions
+            });
+
+        } catch (error) {
+            console.error('Classification error:', error);
+
+            res.status(500).json({
+                success: false,
+                message: 'Image analysis failed.'
+            });
+        }
+    });
+});
+
+// Submit a new complaint
+router.post('/', (req, res) => {
+
+    upload.single('image')(req, res, async (uploadError) => {
+
+        if (uploadError) {
+            return res.status(400).json({
+                success: false,
+                message: uploadError.message
+            });
+        }
+
+        try {
+            const {
+                category,
+                description,
+                location,
+                latitude,
+                longitude
+            } = req.body;
+
             if (!category || !description || !location) {
                 return res.status(400).json({
                     success: false,
@@ -67,19 +109,23 @@ router.post('/', (req, res) => {
                 });
             }
 
-            // Generate ticket ID
             const ticketId = generateTicketId();
 
-            // Get uploaded image path
             const imageUrl = req.file
                 ? '/uploads/' + req.file.filename
                 : null;
 
-            // Save complaint in database
+            let aiSuggestedCategory = 'Not detected';
+
+            if (req.file) {
+                const aiResult = await classifyImage(req.file.path);
+                aiSuggestedCategory = aiResult.suggestedCategory;
+            }
+
             const insertComplaint = db.prepare(`
                 INSERT INTO complaints
-                (ticket_id, category, description, location, latitude, longitude, image_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (ticket_id, category, description, location, latitude, longitude, image_url, priority)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `);
 
             insertComplaint.run(
@@ -89,7 +135,8 @@ router.post('/', (req, res) => {
                 location,
                 latitude || null,
                 longitude || null,
-                imageUrl
+                imageUrl,
+                'Medium'
             );
 
             res.status(201).json({
@@ -101,7 +148,8 @@ router.post('/', (req, res) => {
                     description,
                     location,
                     imageUrl,
-                    status: 'Submitted'
+                    status: 'Submitted',
+                    aiSuggestedCategory
                 }
             });
 
@@ -116,19 +164,17 @@ router.post('/', (req, res) => {
     });
 });
 
-
 // Get all complaints
 router.get('/', (req, res) => {
+
     try {
         const complaints = db.prepare(`
             SELECT * FROM complaints
             ORDER BY created_at DESC
         `).all();
 
-        res.status(200).json({
+        res.json({
             success: true,
-            message: 'Complaints retrieved successfully!',
-            count: complaints.length,
             data: complaints
         });
 
@@ -137,14 +183,14 @@ router.get('/', (req, res) => {
 
         res.status(500).json({
             success: false,
-            message: 'Failed to retrieve complaints.'
+            message: 'Unable to fetch complaints.'
         });
     }
 });
 
-
 // Get complaint by ticket ID
 router.get('/:ticketId', (req, res) => {
+
     try {
         const ticketId = req.params.ticketId;
 
@@ -160,9 +206,8 @@ router.get('/:ticketId', (req, res) => {
             });
         }
 
-        res.status(200).json({
+        res.json({
             success: true,
-            message: 'Complaint retrieved successfully!',
             data: complaint
         });
 
@@ -171,21 +216,20 @@ router.get('/:ticketId', (req, res) => {
 
         res.status(500).json({
             success: false,
-            message: 'Failed to retrieve complaint.'
+            message: 'Unable to fetch complaint.'
         });
     }
 });
 
-
 // Update complaint status
 router.patch('/:ticketId/status', (req, res) => {
+
     try {
-        const ticketId = req.params.ticketId;
         const { status } = req.body;
+        const ticketId = req.params.ticketId;
 
         const allowedStatuses = [
-            'Submitted',
-            'Assigned',
+            'Pending',
             'In Progress',
             'Resolved'
         ];
@@ -193,15 +237,17 @@ router.patch('/:ticketId/status', (req, res) => {
         if (!allowedStatuses.includes(status)) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid status. Use Submitted, Assigned, In Progress or Resolved.'
+                message: 'Invalid status.'
             });
         }
 
-        const result = db.prepare(`
+        const updateStatus = db.prepare(`
             UPDATE complaints
-            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            SET status = ?
             WHERE ticket_id = ?
-        `).run(status, ticketId);
+        `);
+
+        const result = updateStatus.run(status, ticketId);
 
         if (result.changes === 0) {
             return res.status(404).json({
@@ -210,13 +256,9 @@ router.patch('/:ticketId/status', (req, res) => {
             });
         }
 
-        res.status(200).json({
+        res.json({
             success: true,
-            message: 'Complaint status updated successfully!',
-            data: {
-                ticketId,
-                status
-            }
+            message: 'Complaint status updated successfully.'
         });
 
     } catch (error) {
@@ -224,7 +266,57 @@ router.patch('/:ticketId/status', (req, res) => {
 
         res.status(500).json({
             success: false,
-            message: 'Failed to update complaint status.'
+            message: 'Unable to update status.'
+        });
+    }
+});
+
+// Update complaint priority
+router.patch('/:ticketId/priority', (req, res) => {
+
+    try {
+        const { priority } = req.body;
+        const ticketId = req.params.ticketId;
+
+        const allowedPriorities = [
+            'High',
+            'Medium',
+            'Low'
+        ];
+
+        if (!allowedPriorities.includes(priority)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid priority.'
+            });
+        }
+
+        const updatePriority = db.prepare(`
+            UPDATE complaints
+            SET priority = ?
+            WHERE ticket_id = ?
+        `);
+
+        const result = updatePriority.run(priority, ticketId);
+
+        if (result.changes === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Complaint not found.'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Complaint priority updated successfully.'
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            success: false,
+            message: 'Unable to update priority.'
         });
     }
 });

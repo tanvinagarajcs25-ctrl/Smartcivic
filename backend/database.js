@@ -15,10 +15,26 @@ db.exec(`
         longitude REAL,
         image_url TEXT,
         status TEXT NOT NULL DEFAULT 'Submitted',
+        priority TEXT NOT NULL DEFAULT 'Medium',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
 `);
+// Add priority column if it doesn't already exist
+const columns = db.prepare('PRAGMA table_info(complaints)').all();
+
+const priorityExists = columns.some(
+    (column) => column.name === 'priority'
+);
+
+if (!priorityExists) {
+    db.exec(`
+        ALTER TABLE complaints
+        ADD COLUMN priority TEXT NOT NULL DEFAULT 'Medium'
+    `);
+
+    console.log('Priority column added successfully!');
+}
 
 console.log('Complaints database and table created successfully!');
 
