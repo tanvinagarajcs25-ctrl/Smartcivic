@@ -3,3 +3,5 @@ complaints.db
 uploads/*
 !uploads/.gitkeep
 .env
+backend/uploads/*
+backend/*.db
